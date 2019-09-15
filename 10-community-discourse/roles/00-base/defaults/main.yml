@@ -1,0 +1,4 @@
+---
+# defaults file for 00-base
+run_system_upgrades: true
+apt_key_sig: 9DC858229FC7DD38854AE2D88D81803C0EBFCD88

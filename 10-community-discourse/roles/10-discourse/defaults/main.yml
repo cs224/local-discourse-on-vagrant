@@ -1,0 +1,12 @@
+---
+# defaults file for 10-discourse
+discourse_location: /var/discourse
+discourse_host_name: "discourse.joto.test"
+discourse_smtp_address: '{{ discourse_host_name }}'
+discourse_smtp_port: 1025
+email: "cs224@weisser-zwerg.dev"
+root_email_forward: "{{ email }}"         # this could be multiple, comma seperated addresses
+discourse_developer_emails: "{{ email }}" # this could be multiple, comma seperated addresses
+letsencrypt_account_email: "{{ email }}"  # this needs to be a single address
+lxd_network_base_segment: 10.100.1
+discourse_host_ip: '{{ lxd_network_base_segment }}.40'

@@ -1,0 +1,145 @@
+---
+# tasks file for 10-discourse
+
+- name: reset ssh connection to allow user changes to affect 'current login user'
+  meta: reset_connection
+
+- name: ensure docker is running
+  service: name=docker state=restarted
+  become: yes
+
+- name: Group for Discourse present
+  group:
+    name: discourse
+    system: yes
+    state: present
+
+- name: User for Discourse present
+  user:
+    name: discourse
+    system: yes
+    state: present
+    shell: /bin/bash
+    home: /home/discourse
+    createhome: true
+    groups: discourse,docker
+
+- name: Discourse checked out
+  git:
+    repo: https://github.com/discourse/discourse_docker.git
+    dest: '{{ discourse_location }}'
+    update: yes
+  become: yes
+
+- name: Recursively change ownership of /var/discourse
+  file:
+    path: '{{ discourse_location }}'
+    state: directory
+    recurse: yes
+    owner: discourse
+    group: users
+
+- name: Count how much swap is available
+  shell: "free -g --si | awk '/^Swap:/{print $2}'"
+  args:
+    executable: /bin/bash
+  register: swap_space
+
+- debug:
+    msg: "There is {{ swap_space.stdout }}GB of swap space"
+
+- name: Fail if less than 2GB of swap is available
+  fail:
+    msg: "Please ensure that the server has at least 2G of swap available"
+  when: swap_space < 2
+
+- name: 25% of physical memory calculated
+  shell: "echo $(( $(free -m | awk '/^Mem:/{print $2}') / 4 ))"
+  args:
+    executable: /bin/bash
+  register: db_shared_buffers
+
+- debug:
+    msg: "db_shared_buffers to be set {{ db_shared_buffers.stdout }}MB, which is 25% of physical memory"
+
+- name: Count the CPUs
+  command: nproc --all
+  register: cpus
+
+- debug:
+    msg: "There are {{ cpus.stdout }} CPUs available"
+
+- name: Count the memory in GB
+  shell: "free -g --si | awk '/^Mem:/{print $2}'"
+  args:
+    executable: /bin/bash
+  register: memory
+
+- debug:
+    msg: "There is {{ memory.stdout }}GB of RAM available"
+
+- block:
+
+  - name: Number of Unicorn Workers set to 2 times RAM in GB
+    shell: "echo $(( 2 * {{ memory.stdout }} ))"
+    args:
+      executable: /bin/bash
+    register: unicorn_workers
+
+  when: memory < 2
+
+- block:
+
+  - name: Number of Unicorn Workers set to 2 times the number of CPUs
+    shell: "echo $(( 2 * {{ cpus.stdout }} ))"
+    args:
+      executable: /bin/bash
+    register: unicorn_workers
+
+  when: memory >= 2
+
+- debug:
+    msg: "Unicorn Workers set to {{ unicorn_workers.stdout }}"
+
+- name: Get the IP address of the server
+  command: hostname -i
+  register: host_ip_read
+
+# https://docs.ansible.com/ansible/latest/user_guide/playbooks_filters.html#regular-expression-filters
+# - debug:
+#     msg: "IP address of the server is {{ 'Some DNS servers are 8.8.8.8 and 8.8.4.4' | regex_findall('\\b(?:[0-9]{1,3}\\.){3}[0-9]{1,3}\\b') }}"
+#
+# - debug:
+#     msg: "IP address of the server is {{ host_ip_read.stdout }}"
+#
+# - debug:
+#     msg: "IP address of the server is {{ host_ip_read.stdout | regex_findall('\\b(?:[0-9]{1,3}\\.){3}[0-9]{1,3}\\b') }}"
+
+- set_fact:
+    host_ip: "{{ host_ip_read.stdout | regex_findall('\\b(?:[0-9]{1,3}\\.){3}[0-9]{1,3}\\b') | first }}"
+
+- debug:
+    msg: "IP address of the server is {{ host_ip }}"
+
+# - name: Ensure the hosts files contains our domain
+#   lineinfile:
+#     path: /etc/hosts
+#     state: present
+#     regexp: '^{{ host_ip }}'
+#     line: '{{ host_ip }} discourse {{ discourse_host_name }}'
+
+- name: Generate app.yml
+  template:
+    src: templates/standalone.yml.j2
+    dest: /var/discourse/containers/app.yml
+    owner: discourse
+    group: users
+  become: yes
+
+- name: Rebuild Discourse app
+  #command: /var/discourse/launcher rebuild app
+  command: /var/discourse/launcher rebuild app --docker-args "--add-host discourse.joto.test:{{ lxd_network_base_segment }}.40"
+  # command: /var/discourse/launcher rebuild app --docker-args "--add-host discourse.joto.test:10.100.1.40"
+  #command: /var/discourse/launcher rebuild app --docker-args "--network host"
+  become: yes
+  become_user: discourse

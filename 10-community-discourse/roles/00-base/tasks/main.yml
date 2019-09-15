@@ -1,0 +1,100 @@
+---
+# tasks file for 00-base
+# https://docs.ansible.com/ansible/latest/reference_appendices/YAMLSyntax.html
+# "DNS=1.1.1.1 1.0.0.1" "DNS=10.0.2.3"
+# - name: configure DNS
+#   replace:
+#     path: /etc/systemd/resolved.conf
+#     regexp: '^#DNS='
+#     replace: "DNS=10.0.2.3"
+#   become: yes
+#
+# - name: restart systemd-resolved
+#   systemd:
+#     name: systemd-resolved
+#     enabled: yes
+#     state: restarted
+#     daemon_reload: yes
+#   become: yes
+
+- name: set-up /etc/apt/sources.list
+  copy:
+    src: "{{ role_path }}/files/sources.list"
+    dest: "/etc/apt/sources.list"
+    owner: root
+    group: root
+    mode: '0664'
+  become: true
+
+- name: Perform system upgrades
+  apt:
+    update_cache: yes
+    cache_valid_time: 3600
+    upgrade: yes
+  when: run_system_upgrades
+  retries: 2
+  register: _system_upgrade
+  until: _system_upgrade is succeeded
+  become: yes
+
+- name: install packages
+  apt:
+    name: "{{ packages }}"
+    state: present
+  vars:
+    packages:
+    - aptitude
+    - snapd
+    - emacs-nox
+    - wajig
+    - apticron
+    - git
+    - curl
+    - build-essential
+    - g++
+    - telnet
+  become: yes
+
+- name: restart the snapd service
+  systemd:
+    name: snapd.service
+    enabled: yes
+    state: restarted
+  become: yes
+
+- name: check if docker.gpg.key already exists
+  stat:
+    path: /home/vagrant/docker.gpg.key
+  register: docker_gpg_key_exists
+
+- name: download docker gpg key # https://download.docker.com/linux/ubuntu/gpg
+  get_url:
+    url: https://download.docker.com/linux/ubuntu/gpg
+    dest: /home/vagrant/docker.gpg.key
+    owner: vagrant
+    group: vagrant
+    mode: '0660'
+  when: not docker_gpg_key_exists.stat.exists
+
+- name: Add Docker repository key
+  apt_key:
+    id: "{{ apt_key_sig }}"
+    file: /home/vagrant/docker.gpg.key
+    state: present
+  become: true
+
+# - name: Ensure acl support for tmp file system
+#   lineinfile:
+#     path: /etc/fstab
+#     state: present
+#     regexp: '^LABEL='
+#     line: 'LABEL=cloudimg-rootfs   /        ext4   defaults,acl        0 0'
+
+# mount -o remount,defaults,acl /dev/sda1 /
+# - name: Mount / with acl enabled
+#   mount:
+#     path: /
+#     src: /dev/sda1
+#     fstype: ext4
+#     opts: remount,defaults,acl
+#     state: mounted

@@ -1,0 +1,39 @@
+# lxc launch -p ssh-vagrant-profile -p discourse-host-profile ubuntu:18.04 discourse-host
+# lxc config show --expanded discourse-host
+# lxc exec discourse-host -- sudo --login --user vagrant
+# ssh -o UserKnownHostsFile=/dev/null -o StrictHostKeyChecking=no vagrant@10.100.1.40
+# ssh -o UserKnownHostsFile=/dev/null -o StrictHostKeyChecking=no vagrant@discourse.joto.test
+
+- name: Setup lxc discourse container
+  hosts: discourse-host
+  gather_facts: yes
+  become: false
+  become_method: sudo
+  vars_files:
+    - config.yml
+  tasks:
+  - name: ping
+    ping:
+
+  roles:
+    - role: 00-base
+      tags: base
+    - role: "angstwad.docker_ubuntu"
+      daemon_json:
+        hosts:
+        - "fd://"
+        - "tcp://0.0.0.0:2376"
+        log-level: debug
+        storage-driver: "overlay2"
+        log-driver: json-file
+        log-opts:
+          max-file: "3"
+          max-size: "10m"
+      docker_group_members: ["vagrant"]
+      become: yes
+    - role: geerlingguy.mailhog
+      tags: mailhog
+      become: yes
+    - role: 10-discourse
+      tags: discourse
+      become: yes

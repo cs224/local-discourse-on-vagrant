@@ -1,0 +1,3 @@
+---
+timezone: "Europe/Berlin"
+lxd_network_base_segment: 10.100.1
