@@ -1,0 +1,43 @@
+---
+# tasks file for 02-lxc-launches
+
+- name: generate /etc/hosts that includes the hostnames for the lxd containers
+  template:
+    src: hosts.j2
+    dest: /etc/hosts
+    owner: root
+    group: root
+    mode: '0644'
+  become: true
+
+- name: generate /home/vagrant/discourse-host-profile.yml
+  template:
+    src: discourse-host-profile.yml.j2
+    dest: /home/vagrant/discourse-host-profile.yml
+
+- name: lxc profile create discourse-host-profile
+  shell: lxc profile create discourse-host-profile
+  ignore_errors: yes
+
+- name: lxc profile edit discourse-host-profile < configuration
+  shell: cat /home/vagrant/discourse-host-profile.yml | lxc profile edit discourse-host-profile
+
+# lxc launch -p ssh-vagrant-profile -p discourse-host-profile ubuntu:18.04 t2
+
+# - name: lxc launch discourse-host
+#   lxd_container:
+#     name: discourse-host
+#     state: started
+#     source:
+#       type: image
+#       alias: "ubuntu:18.04"
+#     profiles: ["ssh-vagrant-profile", "discourse-host-profile"]
+#     wait_for_ipv4_addresses: true
+#     timeout: 600
+
+- name: lxc launch discourse-host
+  shell: lxc launch -p ssh-vagrant-profile -p discourse-host-profile ubuntu:18.04 discourse-host
+  ignore_errors: yes
+
+- debug:
+    msg: "You can recreate the discourse-host via the following command: lxc launch -p ssh-vagrant-profile -p discourse-host-profile ubuntu:18.04 discourse-host"

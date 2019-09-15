@@ -1,0 +1,190 @@
+---
+# tasks file for 01-lxd-preseed
+
+# https://tutorials.ubuntu.com/tutorial/introduction-to-lxd-projects#0
+# https://www.linuxtechi.com/install-lxd-lxc-containers-from-scratch/
+# https://github.com/lxc/lxd/tree/master/doc
+# https://lxd.readthedocs.io/en/stable-3.0/database/
+
+# https://github.com/lxc/lxd/blob/master/doc/preseed.md
+# https://github.com/lxc/lxd/blob/master/doc/rest-api.md
+# https://discuss.linuxcontainers.org/t/how-to-get-the-full-configuration-to-use-it-with-lxd-init-preseed/3333
+# https://docs.ansible.com/ansible/latest/modules/lxd_profile_module.html
+# https://docs.ansible.com/ansible/latest/modules/lxd_container_module.html
+
+# https://blog.knoldus.com/unionfs-a-file-system-of-a-container/
+# https://docs.docker.com/storage/storagedriver/overlayfs-driver/
+# https://discuss.linuxcontainers.org/t/overlayfs-on-lxd/5592 Overlayfs on LXD
+
+# https://www.reddit.com/r/ansible/comments/9b03l8/managing_lxd_containers_on_remote_machines/
+
+- name: check if vagrant.pub already exists
+  stat:
+    path: /home/vagrant/.ssh/id_rsa.pub
+  register: id_rsa_pub_exists
+
+- name: download vagrant insecure key to be able to access lxd container # https://raw.githubusercontent.com/hashicorp/vagrant/master/keys/vagrant.pub
+  get_url:
+    url: https://raw.githubusercontent.com/hashicorp/vagrant/master/keys/vagrant.pub
+    dest: /home/vagrant/.ssh/id_rsa.pub
+    mode: '0660'
+  when: not id_rsa_pub_exists.stat.exists
+
+- name: lookup('file', '~/.ssh/id_rsa.pub')
+  slurp:
+    src: /home/vagrant/.ssh/id_rsa.pub
+  register: id_rsa_pub
+
+- debug:
+    msg: id_rsa_pub {{ id_rsa_pub['content'] | b64decode }}
+
+# full command should be equivalent to : $(curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sed  's/^/                /')
+
+- name: check if docker.gpg.key already exists
+  stat:
+    path: /home/vagrant/docker.gpg.key.orig
+  register: docker_gpg_key_exists
+
+- name: download docker gpg key # https://download.docker.com/linux/ubuntu/gpg
+  get_url:
+    url: https://download.docker.com/linux/ubuntu/gpg
+    dest: /home/vagrant/docker.gpg.key.orig
+    mode: '0660'
+  when: not docker_gpg_key_exists.stat.exists
+
+- name: ensure permissions of /home/vagrant/docker.gpg.key.orig
+  file:
+    path: /home/vagrant/docker.gpg.key.orig
+    owner: vagrant
+    group: vagrant
+    mode: '0660'
+
+- name: ensure /home/vagrant/docker.gpg.key does not exist
+  file:
+    state: absent
+    path: /home/vagrant/docker.gpg.key
+
+- name: copy docker.gpg.key.orig to docker.gpg.key
+  shell: cp /home/vagrant/docker.gpg.key.orig /home/vagrant/docker.gpg.key
+
+- name: prepend docker gpg key with enough spaces to match the required identation in the lxd-preseed.yml.j2 file
+  replace:
+    path: /home/vagrant/docker.gpg.key
+    regexp: '^'
+    replace: '                '
+
+- name: lookup('file', '/home/vagrant/docker.gpg.key')
+  slurp:
+    src: /home/vagrant/docker.gpg.key
+  register: indented_docker_gpg_key
+
+- debug:
+    msg: indented_docker_gpg_key {{ indented_docker_gpg_key['content'] | b64decode }}
+
+# {{ lookup('file', '/home/vagrant/docker.gpg.key') }} }}
+
+- name: register $(lsb\_release -cs) to lsb_release variable
+  shell: "lsb_release -cs"
+  register: lsb_release
+
+- debug:
+    msg: lsb_release {{ lsb_release['stdout_lines'][0] }}
+
+- name: register $(uname -r) to uname_r variable
+  shell: "uname -r"
+  register: uname_r
+
+- debug:
+    msg: uname_r {{ uname_r['stdout_lines'][0] }}
+
+- name: generate /home/vagrant/lxd-preseed.yml
+  template:
+    src: lxd-preseed.yml.j2
+    dest: /home/vagrant/lxd-preseed.yml
+
+- name: lxd init --preseed
+  shell: cat /home/vagrant/lxd-preseed.yml | lxd init --preseed
+  become: true
+
+# sudo systemd-resolve --interface lxdbr0 --set-dns 10.10.10.1 --set-domain lxd
+# https://blog.simos.info/how-to-use-lxd-container-hostnames-on-the-host-in-ubuntu-18-04/ In this post we are going to see how to set up the host on Ubuntu 18.04 (any Linux distribution that uses systemd-resolve) so that the host can access the container hostnames.
+
+# - name: lxdhostsdns_start.sh + lxdhostsdns_stop.sh
+#   copy:
+#     src: "{{ role_path }}/files/{{ item }}"
+#     dest: "/usr/local/bin/{{ item }}"
+#     owner: root
+#     group: root
+#     mode: '0755'
+#   become: true
+#   with_items:
+#     - lxdhostdns_start.sh
+#     - lxdhostdns_stop.sh
+#
+# - name: lxd-host-dns.service file
+#   copy:
+#     src: "{{ role_path }}/files/lxd-host-dns.service"
+#     dest: "/lib/systemd/system/lxd-host-dns.service"
+#     owner: root
+#     group: root
+#     mode: '0644'
+#   become: true
+#
+# - name: enable lxd-host-dns.service
+#   systemd:
+#     name: lxd-host-dns.service
+#     enabled: yes
+#     daemon_reload: yes
+#     state: started
+#   become: yes
+
+# moved to 02-lxc-launches
+# - name: generate /home/vagrant/discourse-host-profile.yml
+#   template:
+#     src: discourse-host-profile.yml.j2
+#     dest: /home/vagrant/discourse-host-profile.yml
+#
+# # - name: create the profile dockerhost
+# #   lxd_profile:
+# #     name: discourse-host-profile
+# #     state: present
+# #   become: false
+#
+# - name: lxc profile create discourse-host-profile
+#   shell: lxc profile create discourse-host-profile
+#   ignore_errors: yes
+#
+# - name: lxc profile edit discourse-host-profile < configuration
+#   shell: cat /home/vagrant/discourse-host-profile.yml | lxc profile edit discourse-host-profile
+
+- name: generate /home/vagrant/ssh-vagrant-profile.yml
+  template:
+    src: ssh-vagrant-profile.yml.j2
+    dest: /home/vagrant/ssh-vagrant-profile.yml
+
+# - name: create the profile ssh-vagrant-profile | lxc profile create ssh-vagrant-profile
+#   lxd_profile:
+#     name: ssh-vagrant-profile
+#     state: present
+#   become: true
+
+- name: lxc profile create ssh-vagrant-profile
+  shell: lxc profile create ssh-vagrant-profile
+  ignore_errors: yes
+
+- name: lxc profile edit ssh-vagrant-profile < configuration
+  shell: cat /home/vagrant/ssh-vagrant-profile.yml | lxc profile edit ssh-vagrant-profile
+
+
+# lxc launch -p dockerhost -p discourse-host-profile ubuntu:18.04 discourse-host
+# lxc launch -p ssh-vagrant-profile ubuntu:18.04 t1
+# lxc exec discourse-host -- sudo --login --user vagrant
+
+# Add a LXD proxy device to redirect connections from the internet to port 80 (HTTP) on the server to port 80 at this container.
+# https://www.linode.com/docs/applications/containers/beginners-guide-to-lxd/
+# https://github.com/lxc/lxd/blob/master/doc/containers.md device types
+# https://discuss.linuxcontainers.org/t/forward-port-80-and-443-from-wan-to-container/2042 Forward port 80 and 443 from WAN to container
+# https://discuss.linuxcontainers.org/t/performance-of-the-proxy-device-compared-to-traditional-iptables-rules/2052/5 Performance of the proxy device compared to traditional iptables rules / proxy_protocol flag
+
+# 'linux-image-extra-4.15.0-58-generic', 'linux-image-extra-virtual', 'apt-transport-https', 'ca-certificates', 'curl', 'software-properties-common', 'docker-ce', 'gnupg-agent', 'software-properties-common'
+# http://archive.ubuntu.com/ubuntu bionic-updates/main linux-modules-extra-4.15.0-60-generic

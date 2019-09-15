@@ -1,0 +1,27 @@
+config:
+  boot.autostart.delay: 15
+  boot.autostart.priority: 1
+  user.meta-data: |
+    hostname: discourse-host
+    fqdn: discourse-host.lxd
+    manage_etc_hosts: true
+devices:
+  eth0:
+    name: eth0
+    nictype: bridged
+    parent: lxdbr0
+    type: nic
+    ipv4.address: {{ discourse_host_ip }}
+  myport80:
+    connect: tcp:localhost:80
+    listen: tcp:0.0.0.0:80
+    type: proxy
+{#
+  root:
+    path: /
+    pool: default
+    type: disk
+  mem:
+    type: unix-char
+    path: /dev/mem
+#}

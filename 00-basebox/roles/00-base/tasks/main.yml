@@ -1,0 +1,79 @@
+---
+# tasks file for 00-base
+# https://docs.ansible.com/ansible/latest/reference_appendices/YAMLSyntax.html
+
+- name: set-up /etc/environment
+  copy:
+    src: "{{ role_path }}/files/environment"
+    dest: "/etc/environment"
+    owner: root
+    group: root
+    mode: '0644'
+  become: true
+
+- name: set-up /etc/apt/sources.list
+  copy:
+    src: "{{ role_path }}/files/sources.list"
+    dest: "/etc/apt/sources.list"
+    owner: root
+    group: root
+    mode: '0664'
+  become: true
+
+- name: Perform system upgrades
+  apt:
+    update_cache: yes
+    cache_valid_time: 3600
+    upgrade: yes
+  when: true # "run_system_upgrades | bool"
+  retries: 2
+  register: _system_upgrade
+  until: _system_upgrade is succeeded
+  become: yes
+
+- name: install snapd
+  apt:
+    name: "{{ packages }}"
+    state: present
+  vars:
+    packages:
+    - aptitude
+    - snapd
+    - emacs-nox
+    - wajig
+    - lxc
+    - dkms # to be able to build the guest addtions
+  become: yes
+
+- name: restart the snapd service
+  systemd:
+    name: snapd.service
+    enabled: yes
+    state: restarted
+  become: yes
+
+- name: install lxd snap
+  snap:
+    name:
+      - lxd
+  become: yes
+
+- name: Add the user 'vagrant' to the lxd group
+  user:
+    name: vagrant
+    groups:
+    - lxd
+    append: yes
+  become: yes
+
+- name: put the vagrant private key into the vagrant user .ssh directory as id_ras
+  copy:
+    src: "{{ lookup('env', 'HOME') }}/.vagrant.d/insecure_private_key"
+    dest: /home/vagrant/.ssh/id_rsa
+    owner: vagrant
+    group: vagrant
+    mode: '0600'
+
+- name: reset ssh connection to allow user changes to affect 'current login user'
+  meta: reset_connection
+# https://blog.simos.info/how-to-use-lxd-container-hostnames-on-the-host-in-ubuntu-18-04/ In this post we are going to see how to set up the host on Ubuntu 18.04 (any Linux distribution that uses systemd-resolve) so that the host can access the container hostnames.

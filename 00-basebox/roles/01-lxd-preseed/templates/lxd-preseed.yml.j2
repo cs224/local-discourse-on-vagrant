@@ -1,0 +1,177 @@
+{#
+lxc config show
+lxc cluster show mycluster
+lxc network show lxdbr0
+lxc storage show default
+lxc profile show default
+
+lxd init --dump
+
+https://memcpy.io/running-docker-privileged-inside-of-lxc-lxd.html
+
+https://lxd.readthedocs.io/en/latest/#faq : How can I run docker inside a LXD container?
+lxc config set <container> security.nesting true
+#}
+config:
+  images.auto_update_interval: 15
+storage_pools:
+- name: default
+  description: ""
+  driver: dir
+  config: {}
+networks:
+- name: lxdbr0
+  description: ""
+  managed: false
+  type: "bridge"
+  config:
+    ipv4.address: auto
+    ipv6.address: auto
+    ipv4.address: 10.100.1.1/24
+    ipv4.nat: "true"
+    ipv6.address: fd42:d282:a2d:f60a::1/64
+    ipv6.nat: "true"
+{#
+    raw.dnsmasq: |
+      auth-zone=lxd
+      dns-loop-detect
+- name: lxdbr1
+  type: bridge
+  config:
+    bridge.driver: native
+    bridge.external_interfaces: enp0s8
+    bridge.mode: standard
+    ipv4.address: "{{ lxd_network_base_segment }}.100/24"
+    ipv4.dhcp: true
+    ipv4.dhcp.ranges: "{{ lxd_network_base_segment }}.100-{{ lxd_network_base_segment }}.254"
+    ipv4.firewall: false
+    ipv4.nat: false
+    ipv4.routing: true
+    ipv6.address: none
+    dns.domain: master.test
+    dns.mode: managed
+    raw.dnsmasq: |
+      dhcp-option-force=26,9000
+      server=127.0.0.1
+#}
+profiles:
+- name: default
+  config: {}
+  description: ""
+  devices:
+    eth0:
+      name: eth0
+      nictype: bridged
+      parent: lxdbr1
+      type: nic
+    root:
+      path: /
+      pool: default
+      type: disk
+- name: dockerhost
+  config:
+    boot.autostart: true
+    # -----------
+    linux.kernel_modules: bridge,br_netfilter,x_tables,ip_tables,ip_vs,ip_set,ipip,xt_mark,xt_multiport,ip_tunnel,tunnel4,netlink_diag,nf_conntrack,nfnetlink,overlay,ip6_tables,nf_nat
+    raw.lxc: |-
+      lxc.aa_profile = unconfined
+      lxc.cgroup.devices.allow = a
+      lxc.mount.auto=proc:rw sys:rw cgroup:rw
+      lxc.cap.drop =
+    security.privileged: "true"
+    # -----------
+    security.nesting: "true"
+    user.network-config: |
+      version: 1
+      config:
+        - type: physical
+          name: eth0
+          subnets:
+            - type: dhcp
+    user.user-data: |
+      #cloud-config
+      disable_root: false
+      disable_root_opts:
+      users:
+        - default
+        - name: vagrant
+          sudo: ['ALL=(ALL) NOPASSWD:ALL']
+          groups: sudo
+          shell: /bin/bash
+          ssh-authorized-keys:
+            - {{ id_rsa_pub['content'] | b64decode }}
+      ntp:
+        servers:
+          - time1.google.com
+          - time2.google.com
+          - time3.google.com
+          - time4.google.com
+      apt:
+        preserve_sources_list: true
+        conf: |
+          APT {
+            Get {
+              Assume-Yes "true";
+              Fix-Broken "true";
+            };
+            Install-Suggests "false";
+            Install-Recommends "false";
+            AutoRemove {
+              SuggestsImportant "false";
+              RecommendsImportant "false";
+            };
+          };
+          Dir {
+            Cache {
+              archives "";
+            };
+          };
+        sources:
+          source1:
+            source: "deb [arch=amd64] http://download.docker.com/linux/ubuntu {{ lsb_release['stdout_lines'][0] }} stable"
+            key: |
+{{ indented_docker_gpg_key['content'] | b64decode }}
+      package_update: true
+      package_upgrade: true
+      package_reboot_if_required: true
+      packages:
+{#
+        - linux-image-extra-{{ uname_r['stdout_lines'][0] }}
+        - linux-image-extra-virtual
+#}
+        - apt-transport-https
+        - ca-certificates
+        - curl
+        - software-properties-common
+        - docker-ce
+        - gnupg-agent
+      runcmd:
+        - sed -i 's|ExecStart=/usr/bin/dockerd -H fd://|ExecStart=/usr/bin/dockerd -H fd:// --max-concurrent-downloads 10|g' /lib/systemd/system/docker.service
+        - [ systemctl, daemon-reload ]
+        - [ systemctl, restart, docker ]
+        - [ usermod, -aG, docker, vagrant ]
+        - [ ufw, disable ]
+        - [ touch, /DONE ]
+      write_files:
+        - content: |
+            {
+              "log-driver": "json-file",
+              "log-opts": {
+                "max-size": "10m"
+              }
+            }
+          path: /etc/docker/daemon.json
+  devices:
+    root:
+      path: /
+      pool: default
+      type: disk
+    eth0:
+      name: eth0
+      nictype: bridged
+      parent: lxdbr1
+      type: nic
+    mem:
+      type: unix-char
+      path: /dev/mem
+cluster: null

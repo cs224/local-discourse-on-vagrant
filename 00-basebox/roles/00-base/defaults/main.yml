@@ -1,0 +1,3 @@
+---
+# defaults file for 00-base
+run_system_upgrades: false

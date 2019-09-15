@@ -1,0 +1,3 @@
+---
+# defaults file for 01-lxd-preseed
+lxd_network_base_segment: 10.100.1

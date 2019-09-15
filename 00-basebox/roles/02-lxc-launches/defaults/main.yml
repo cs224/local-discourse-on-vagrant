@@ -1,0 +1,5 @@
+---
+# defaults file for 02-lxc-launches
+discourse_host_name: "discourse.joto.test"
+lxd_network_base_segment: 10.100.1
+discourse_host_ip: '{{ lxd_network_base_segment }}.40'

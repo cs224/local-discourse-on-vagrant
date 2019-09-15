@@ -1,0 +1,93 @@
+config:
+  boot.autostart.delay: 15
+  boot.autostart.priority: 1
+  user.meta-data: |
+    hostname: discourse-host
+    fqdn: discourse-host.test
+    manage_etc_hosts: true
+  boot.autostart: true
+  # -----------
+  #linux.kernel_modules: bridge,br_netfilter,x_tables,ip_tables,ip_vs,ip_set,ipip,xt_mark,xt_multiport,ip_tunnel,tunnel4,netlink_diag,nf_conntrack,nfnetlink,overlay,ip6_tables,nf_nat
+  #raw.lxc: |-
+  #  lxc.apparmor.profile = unconfined
+  #  lxc.cgroup.devices.allow = a
+  #  lxc.mount.auto=proc:rw sys:rw cgroup:rw
+  #  lxc.cap.drop =
+  #security.privileged: "true"
+  # -----------
+  environment.LANG: "en_US.UTF-8"
+  environment.LANGUAGE: "en_US:en"
+  environment.LC_ALL: "en_US.UTF-8"
+  linux.kernel_modules: ip_tables,overlay
+  security.privileged: "false"
+  security.nesting: "true"
+  user.network-config: |
+    version: 1
+    config:
+      - type: physical
+        name: eth0
+        subnets:
+          - type: dhcp
+  user.user-data: |
+    #cloud-config
+    output:
+      all: '| tee -a /var/log/cloud-init-output.log'
+    disable_root: false
+    disable_root_opts:
+    write_files:
+      - path: /etc/rsylog.conf
+        content: |
+          module(load="imuxsock")
+          *.* @log.virtdmz
+        owner: root:root
+        permissions: '0644'
+    users:
+      - default
+      - name: vagrant
+        sudo: ['ALL=(ALL) NOPASSWD:ALL']
+        groups: sudo
+        shell: /bin/bash
+        ssh-authorized-keys:
+          - {{ id_rsa_pub['content'] | b64decode }}
+    ntp:
+      servers:
+        - time1.google.com
+        - time2.google.com
+        - time3.google.com
+        - time4.google.com
+    apt:
+      preserve_sources_list: true
+      conf: |
+        APT {
+          Get {
+            Assume-Yes "true";
+            Fix-Broken "true";
+          };
+          Install-Suggests "false";
+          Install-Recommends "false";
+          AutoRemove {
+            SuggestsImportant "false";
+            RecommendsImportant "false";
+          };
+        };
+        Dir {
+          Cache {
+            archives "";
+          };
+        };
+devices:
+{#
+  eth0:
+    name: eth0
+    nictype: bridged
+    parent: lxdbr0
+    type: nic
+  ipv4.address: ${base_segment}.111
+#}
+  root:
+    path: /
+    pool: default
+    type: disk
+  mem:
+    type: unix-char
+    path: /dev/mem

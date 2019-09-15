@@ -1,0 +1,14 @@
+config:
+  boot.autostart.delay: 15
+  boot.autostart.priority: 1
+  user.meta-data: |
+    hostname: discourse-host
+    fqdn: discourse-host.test
+    manage_etc_hosts: true
+devices:
+  eth0:
+    name: eth0
+    nictype: bridged
+    parent: lxdbr0
+    type: nic
+    {# ipv4.address: ${base_segment}.111 #}
